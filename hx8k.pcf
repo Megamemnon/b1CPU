@@ -1,0 +1,18 @@
+# ICE40 HX8k constraints
+
+# Clock
+set_io CLK J3
+
+# USB serial
+set_io RS232_Tx_TTL B12
+set_io RS232_Rx_TTL B10
+
+# LEDs
+set_io LED7 B5
+set_io LED6 B4
+set_io LED5 A2
+set_io LED4 A1
+set_io LED3 C5
+set_io LED2 C4
+set_io LED1 B3
+set_io LED0 C3
