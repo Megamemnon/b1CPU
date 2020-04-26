@@ -18,9 +18,17 @@ The purpose of this project is to design a CPU in Verilog around high level func
 * Flow Control Stack in onboard RAM
 
 # Make Instructions
-* ```make clean``` to clean
-* ```make``` to build
-* ```make flash``` to flash FPGA ram
+Dependencies:
+* IceStorm
+* Yosys
+* NextPNR
+* Screen
+
+```make clean``` to clean 
+
+```make``` to build
+
+```make flash``` to flash FPGA ram and open a serial terminal to /dev/ttyUSB1
 
 # Status
 * tested on iCE40 HX8K
