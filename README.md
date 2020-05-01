@@ -1,3 +1,5 @@
+(This project is a work in progress and most goals have not been achieved. It's build-ability may vary from moment to moment.)
+
 # b1CPU
 The purpose of this project is to design a CPU in Verilog around high level functions to manage communications with peripherals (UART, SPI, etc) and flow control in addition to essential memory management.
 
