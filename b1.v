@@ -34,33 +34,61 @@ module b1 #(
 	output LED6,
 	output LED7
    );
-  
+
+	//States
+	localparam B1_STATE_0 = 'd0;			//Ready to load opcode
+	localparam B1_STATE_1 = 'd1;			//load opcode
+	localparam B1_STATE_2 = 'd2;			//increment IP; decode
+	localparam B1_STATE_3 = 'd3;			//
+	localparam B1_STATE_4 = 'd4;			//
+	localparam B1_STATE_5 = 'd5;			//
+	localparam B1_STATE_200 = 'd200;		//ready to receive external byte
+	localparam B1_STATE_201 = 'd201;		//echo rcvd byte and go to State 2
+	localparam B1_STATE_202 = 'd202;		//clean up and return to State 0
+	localparam B1_STATE_203 = 'd203;		//echo CR and go to State 4
+	localparam B1_STATE_204 = 'd204;		//clean up and go to State 5
+	localparam B1_STATE_205 = 'd205;		//echo LF and go to State 2
+	localparam B1_STATE_206 = 'd206;		//load byte from UART buffer
+	localparam B1_STATE_207 = 'd207;		//transmit UART buffer byte
+	localparam B1_STATE_208 = 'd208;  	//prep to load next UART buffer byte
+	localparam B1_STATE_209 = 'd209;  	//clean up and return to state 0
+
+	reg [7:0]	b1_state = B1_STATE_200;
+
+
 	//cpu
+	localparam IP_START = 16'h200;
+
 	reg 		reset_n = 1'b0;
 	wire [15:0]	addr;
 	wire [7:0]	cpu_data_in;
 	wire [7:0]	cpu_data_out;
+	reg  [15:0]	IP = IP_START;
+	reg	 [7:0]	IR;
+	reg  [7:0]	AH;
+	reg  [7:0]	AL;
+	reg  [7:0]  X;
+	reg  [7:0]	I;
 
 	//ram
 	localparam RAM_SIZE = (1 << RAM_ADDR_WIDTH);
+
 
 	wire		ram_cs_n;
 	wire		ram_rd_n;
 	wire		ram_wr_n;
 	
 	//uart
-	localparam UART_BUFFER_START = 16'h0;
-	localparam UART_BUFFER_SIZE = 16'hFF;
-	localparam UART_STATE_0 = 4'b0000;	//ready to receive external byte
-	localparam UART_STATE_1 = 4'b0001;	//echo rcvd byte and go to State 2
-	localparam UART_STATE_2 = 4'b0010;	//clean up and return to State 0
-	localparam UART_STATE_3 = 4'b0011;	//echo CR and go to State 4
-	localparam UART_STATE_4 = 4'b0100;	//clean up and go to State 5
-	localparam UART_STATE_5 = 4'b0101;	//echo LF and go to State 2
-	localparam UART_STATE_6 = 4'b0110;	//load byte from UART buffer
-	localparam UART_STATE_7 = 4'b0111;	//transmit UART buffer byte
-	localparam UART_STATE_8 = 4'b1000;  //
-	localparam UART_STATE_9 = 4'b1001;  //
+	localparam UART_BUFFER_START = 'h0;
+	localparam UART_BUFFER_SIZE = 'hFF;
+	localparam UART_STATE_0 = 3'b000;
+	localparam UART_STATE_1 = 3'b001;
+	localparam UART_STATE_2 = 3'b010;
+	localparam UART_STATE_3 = 3'b011;
+	localparam UART_STATE_4 = 3'b100;
+	localparam UART_STATE_5 = 3'b101;
+	localparam UART_STATE_6 = 3'b110;
+	localparam UART_STATE_7 = 3'b111;
 
 
 	reg 		transmit;
@@ -73,7 +101,8 @@ module b1 #(
 	reg 		uart_reset;
 	reg [15:0] 	uart_nxtptr = UART_BUFFER_START;
 	reg [15:0]	uart_ptr = UART_BUFFER_START;
-	reg [3:0]	uart_state = UART_STATE_0;
+	reg [7:0]	uart_buffer [0:UART_BUFFER_SIZE - 1];
+	reg [3:0]	uart_state;
 	
 	bram #(
 		.BRAM_ADDR_WIDTH(RAM_ADDR_WIDTH), 
@@ -108,15 +137,17 @@ module b1 #(
 	);
 
 	assign {LED7, LED6, LED5, LED4, LED3, LED2, LED1, LED0} = rx_byte[7:0];
-	assign addr = uart_state == UART_STATE_1 ? uart_nxtptr 
-		: uart_state == UART_STATE_6 || uart_state == UART_STATE_7 ? uart_ptr 
+	// assign {LED7, LED6, LED5, LED4, LED3, LED2, LED1, LED0} = IP[15:8];
+
+	assign addr = (b1_state == B1_STATE_0 || b1_state == B1_STATE_1) 
+			? IP
 		: 16'bz;
-	assign cpu_data_out = uart_state == UART_STATE_1 ? rx_byte : 8'bz;
-	assign ram_cs_n = uart_state == UART_STATE_1 || uart_state == UART_STATE_6? 1'b0 
+	assign cpu_data_out = b1_state == B1_STATE_201 ? rx_byte : 8'bz;
+	assign ram_cs_n = b1_state == B1_STATE_201 ? 1'b0 
 		: 1'b1;
-	assign ram_wr_n = uart_state == UART_STATE_1 ? 1'b0 
+	assign ram_wr_n = b1_state == B1_STATE_201 ? 1'b0 
 		: 1'b1;
-	assign ram_rd_n = uart_state == UART_STATE_6 ? 1'b0 
+	assign ram_rd_n = b1_state == B1_STATE_206 ? 1'b0 
 		: 1'b1;
 
 
@@ -124,85 +155,65 @@ module b1 #(
 		if (reset_n == 1'b0) begin
 			reset_n <= 1'b1;
 			uart_reset <= 1'b0;
+		end 
+		//Instruction States
+		if (b1_state == B1_STATE_0) begin
+			b1_state <= B1_STATE_1;
 		end
-		if (received && uart_state == UART_STATE_0) begin 
-			if (rx_byte == 8'h0D) begin
-				uart_state <= UART_STATE_3;
+		if (b1_state == B1_STATE_1) begin
+			IR <= cpu_data_in;
+			b1_state <= B1_STATE_2;
+		end
+		if (b1_state == B1_STATE_2) begin
+		//decode IR
+			if (IR & 8'b10000000) begin
+				//Data Movement Opcodes
+				
 			end
-			else if (rx_byte == 8'h60 && uart_ptr < uart_nxtptr) begin
-				uart_state <= UART_STATE_6;
+			IP <= IP + 1;
+			b1_state <= B1_STATE_3;
+		end
+		if (b1_state == B1_STATE_3) begin
+			if (uart_nxtptr != uart_ptr && ~is_transmitting) begin
+				tx_byte <= uart_buffer[uart_ptr];
+				transmit <= 1'b1;
+				b1_state <= B1_STATE_4;
 			end
 			else begin
-				uart_state <= UART_STATE_1;
+				b1_state <= B1_STATE_0;
 			end
-		end 
-		if (uart_state == UART_STATE_1 && ~is_receiving && ~is_transmitting) begin
+		end
+		if (b1_state == B1_STATE_4) begin
+			transmit <= 1'b0;
+			if (uart_ptr == (UART_BUFFER_START + UART_BUFFER_SIZE)) begin
+				uart_ptr <= UART_BUFFER_START;
+			end
+			else begin
+				uart_ptr <= uart_ptr + 1'b1;
+			end
+			b1_state <= B1_STATE_0;
+		end
+
+
+
+
+		//UART States
+		if (received && uart_state == UART_STATE_0) begin 
 			// echo byte
 			tx_byte <= rx_byte;
 			transmit <= 1'b1;
-			uart_state <= UART_STATE_2;
+			uart_buffer[uart_nxtptr] <= rx_byte;
+			uart_state <= UART_STATE_1;
 		end
-		if (uart_state == UART_STATE_2 && ~is_receiving && ~is_transmitting) begin
+		if (uart_state == UART_STATE_1) begin
 			// clean up UART
 			transmit <= 1'b0;
-			uart_state <= UART_STATE_0;
 			// increment UART write ptr
 			if (uart_nxtptr == (UART_BUFFER_SIZE + UART_BUFFER_START)) begin
 				uart_nxtptr <= UART_BUFFER_START;
 			end
 			else begin
 				uart_nxtptr <= uart_nxtptr + 1'b1;
-			end
-		end
-		if (uart_state == UART_STATE_3 && ~is_receiving && ~is_transmitting) begin
-				tx_byte <= 8'h0D;
-				transmit <= 1'b1;
-				uart_state <= UART_STATE_4;
-		end
-		if (uart_state == UART_STATE_4) begin
-				transmit <= 1'b0;
-				uart_state <= UART_STATE_5;
-		end
-		if (uart_state == UART_STATE_5 && ~is_receiving && ~is_transmitting) begin
-				tx_byte <= 8'h0A;
-				transmit <= 1'b1;
-				uart_state <= UART_STATE_2;
-		end
-		if (uart_state == UART_STATE_6) begin
-			uart_state <= UART_STATE_7;
-		end
-		if (uart_state == UART_STATE_7 && ~is_receiving && ~is_transmitting) begin
-			// transmit UART buffer byte
-			tx_byte <= cpu_data_in;
-			transmit <= 1'b1;
-			if (cpu_data_in == 8'b00000000) begin
-				uart_state <= UART_STATE_9;
-			end
-			else begin
-				uart_state <= UART_STATE_8;
-			end
-		end
-		if (uart_state == UART_STATE_8) begin
-			// clean up UART
-			transmit <= 1'b0;
-			// increment UART read ptr
-			if (uart_ptr == (UART_BUFFER_SIZE + UART_BUFFER_START)) begin
-				uart_ptr <= UART_BUFFER_START;
-			end
-			else begin
-				uart_ptr <= uart_ptr + 1'b1;
-			end
-			uart_state <= UART_STATE_6;
-		end
-		if (uart_state == UART_STATE_9) begin
-			// clean up UART
-			transmit <= 1'b0;
-			// increment UART read ptr
-			if (uart_ptr == (UART_BUFFER_SIZE + UART_BUFFER_START)) begin
-				uart_ptr <= UART_BUFFER_START;
-			end
-			else begin
-				uart_ptr <= uart_ptr + 1'b1;
 			end
 			uart_state <= UART_STATE_0;
 		end
